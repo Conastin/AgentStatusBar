@@ -1,0 +1,13 @@
+# 构建产物与运行时输出
+AgentStatusBar.exe
+*.pdb
+status-dump.txt
+*.log
+
+# 开发调试的临时截图
+*.png
+
+# 生成 Phrases.cs 的源数据（一次性下载物）
+verbs.json
+tips.json
+verbs-list.txt
