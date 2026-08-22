@@ -324,6 +324,7 @@ namespace AgentStatusBar
 
             SessionState s = GetOrAdd(sid);
             s.LastActivity = ts;
+            string status = GetStr(o, "status");
             bool meaningful = false;
 
             switch (ev)
@@ -340,8 +341,16 @@ namespace AgentStatusBar
                     meaningful = true;
                     break;
                 case "turn.failed":
-                    s.Errors++; errorsToday++; s.LastError = ts;
-                    SetPhase(s, Phase.Error, ts);
+                    if (status == "cancelled")
+                    {
+                        // 用户手动中断不算错误：轮次作废，回到已完成（会话从列表隐去）
+                        SetPhase(s, Phase.Completed, ts);
+                    }
+                    else
+                    {
+                        s.Errors++; errorsToday++; s.LastError = ts;
+                        SetPhase(s, Phase.Error, ts);
+                    }
                     meaningful = true;
                     break;
                 case "model.request.completed":
@@ -354,8 +363,7 @@ namespace AgentStatusBar
                     meaningful = true;
                     break;
                 case "model.request.failed":
-                    s.Errors++; errorsToday++; s.LastError = ts;
-                    meaningful = true;
+                    // API 请求失败由 ZCode 自动重试（多为网络超时/取消残留），不计为错误
                     break;
                 case "tool.call.started":
                     s.Tools++; toolsToday++;
@@ -369,7 +377,8 @@ namespace AgentStatusBar
                     break;
                 case "tool.call.completed":
                 case "tool.call.failed":
-                    if (ev == "tool.call.failed") { s.Errors++; errorsToday++; s.LastError = ts; }
+                    if (ev == "tool.call.failed" && status != "cancelled")
+                    { s.Errors++; errorsToday++; s.LastError = ts; }
                     s.LastTool = s.CurrentTool;
                     s.CurrentTool = "";
                     SetPhase(s, Phase.Thinking, ts);
