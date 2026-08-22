@@ -92,14 +92,14 @@ namespace AgentStatusBar
             return ((int)d.TotalDays) + " 天前";
         }
 
-        /// <summary>token 数量缩写：1234 → 1.2k，1234567 → 1.2M，1.2B。</summary>
+        /// <summary>token 数量缩写：1234 → 1.2k，1234567 → 1.2M，1.2B；k 及以上恒显一位小数。</summary>
         public static string KT(long v)
         {
             if (v <= 0) return "0";
             if (v < 1000) return v.ToString(CultureInfo.InvariantCulture);
-            if (v < 1000000) return (v / 1000.0).ToString("0.#", CultureInfo.InvariantCulture) + "k";
-            if (v < 1000000000L) return (v / 1000000.0).ToString("0.#", CultureInfo.InvariantCulture) + "M";
-            return (v / 1000000000.0).ToString("0.#", CultureInfo.InvariantCulture) + "B";
+            if (v < 1000000) return (v / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + "k";
+            if (v < 1000000000L) return (v / 1000000.0).ToString("0.0", CultureInfo.InvariantCulture) + "M";
+            return (v / 1000000000.0).ToString("0.0", CultureInfo.InvariantCulture) + "B";
         }
 
         public static string Dur(TimeSpan t)
