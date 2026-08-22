@@ -189,9 +189,9 @@ namespace AgentStatusBar
 
         // Nerd Font 图标（Maple Mono NF 内置，已验证存在）
         const int S = 3; // 超采样倍数
-        const string IconCache = "\uF1C0";   // 数据库
-        const string IconInput = "\uF0AB";   // ↓ 入
-        const string IconOutput = "\uF0AA";  // ↑ 出
+        const string IconCache = "\uF1C0";   // 数据库（缓存）
+        const string IconInput = "\uF019";   // 下载箭头（输入）
+        const string IconOutput = "\uF093";  // 上传箭头（输出）
         // 固定宽度模板：{图标, 数值} 交替
         static readonly string[] TokenTpl = new string[]
         {

@@ -109,7 +109,70 @@ namespace AgentStatusBar
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(miRefresh);
             menu.Items.Add(miExit);
+
+            // 每次打开时按系统主题应用样式（可实时跟随明暗切换）
+            menu.Opening += delegate { StyleMenu(menu); };
+            StyleMenu(menu);
             return menu;
+        }
+
+        // ---------- 菜单主题适配 ----------
+
+        static bool IsSystemDark()
+        {
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+                    return k != null && Convert.ToInt32(k.GetValue("AppsUseLightTheme", 1)) == 0;
+            }
+            catch { return false; }
+        }
+
+        static void StyleMenu(ContextMenuStrip menu)
+        {
+            if (IsSystemDark())
+            {
+                menu.Renderer = new DarkMenuRenderer();
+                menu.BackColor = Color.FromArgb(43, 43, 49);
+                menu.ForeColor = Color.FromArgb(238, 238, 242);
+                menu.ShowImageMargin = false;
+            }
+            else
+            {
+                menu.Renderer = new ToolStripProfessionalRenderer();
+                menu.BackColor = SystemColors.Menu;
+                menu.ForeColor = SystemColors.MenuText;
+            }
+        }
+
+        class DarkMenuRenderer : ToolStripProfessionalRenderer
+        {
+            public DarkMenuRenderer() : base(new DarkColorTable()) { }
+        }
+
+        class DarkColorTable : ProfessionalColorTable
+        {
+            static readonly Color Bg = Color.FromArgb(43, 43, 49);
+            static readonly Color Hover = Color.FromArgb(62, 62, 70);
+            static readonly Color Border = Color.FromArgb(66, 66, 74);
+
+            public override Color ToolStripDropDownBackground { get { return Bg; } }
+            public override Color MenuBorder { get { return Border; } }
+            public override Color MenuItemBorder { get { return Border; } }
+            public override Color MenuItemSelected { get { return Hover; } }
+            public override Color MenuItemSelectedGradientBegin { get { return Hover; } }
+            public override Color MenuItemSelectedGradientEnd { get { return Hover; } }
+            public override Color MenuItemPressedGradientBegin { get { return Hover; } }
+            public override Color MenuItemPressedGradientEnd { get { return Hover; } }
+            public override Color ImageMarginGradientBegin { get { return Bg; } }
+            public override Color ImageMarginGradientMiddle { get { return Bg; } }
+            public override Color ImageMarginGradientEnd { get { return Bg; } }
+            public override Color SeparatorDark { get { return Border; } }
+            public override Color SeparatorLight { get { return Border; } }
+            public override Color CheckBackground { get { return Hover; } }
+            public override Color CheckSelectedBackground { get { return Hover; } }
+            public override Color CheckPressedBackground { get { return Hover; } }
         }
 
         void SetStripVisible(bool v)
