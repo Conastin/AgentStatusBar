@@ -600,13 +600,14 @@ namespace AgentStatusBar
                     if ((now - s.LastActivity).TotalHours <= RecentHours) recent.Add(s);
                 recent.Sort(delegate(SessionState a, SessionState b) { return b.LastActivity.CompareTo(a.LastActivity); });
 
-                // 已完成的会话不展示（后台仍跟踪，再次 turn.started 会重新出现）
+                // 已完成/空闲的会话不展示（后台仍跟踪，再次 turn.started 会重新出现）
                 List<SessionState> shown = new List<SessionState>();
                 foreach (SessionState s in recent)
                 {
                     string t;
                     if (dbTitles.TryGetValue(s.Id, out t)) s.DbTitle = t ?? "";
-                    if (s.EffectivePhase(now) != Phase.Completed && shown.Count < 8) shown.Add(s);
+                    Phase ep = s.EffectivePhase(now);
+                    if (ep != Phase.Completed && ep != Phase.Idle && shown.Count < 8) shown.Add(s);
                     if (s.LastActivity > st.LastDataTime)
                     {
                         st.LastDataTime = s.LastActivity;
