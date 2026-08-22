@@ -153,6 +153,26 @@ namespace AgentStatusBar
                 menu.BackColor = SystemColors.Menu;
                 menu.ForeColor = SystemColors.MenuText;
             }
+
+            // 统一内部间距（两种主题一致的度量）
+            menu.Font = Ui.Text;
+            menu.Padding = new Padding(6, 6, 8, 6);
+            menu.ImageScalingSize = new Size(20, 20);
+            foreach (ToolStripItem it in menu.Items)
+            {
+                ToolStripSeparator sep = it as ToolStripSeparator;
+                if (sep != null)
+                {
+                    sep.AutoSize = false;
+                    sep.Height = 2;
+                    sep.Margin = new Padding(10, 6, 10, 6);
+                }
+                else
+                {
+                    it.Padding = new Padding(4, 7, 16, 7);
+                    it.Margin = new Padding(0);
+                }
+            }
         }
 
         class DarkMenuRenderer : ToolStripProfessionalRenderer
