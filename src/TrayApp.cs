@@ -57,7 +57,17 @@ namespace AgentStatusBar
             };
             anim.Start();
 
+            // 订阅系统主题变更广播（WM_SETTINGCHANGE / ImmersiveColorSet），切换深浅模式即时重绘
+            SystemEvents.UserPreferenceChanged += OnPreferenceChanged;
+
             RefreshAll();
+        }
+
+        void OnPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+        {
+            if (e.Category != UserPreferenceCategory.General) return;
+            try { StyleMenu(tray.ContextMenuStrip); }
+            catch { }
         }
 
         ContextMenuStrip BuildMenu()
@@ -367,6 +377,7 @@ namespace AgentStatusBar
         {
             if (disposing)
             {
+                SystemEvents.UserPreferenceChanged -= OnPreferenceChanged;
                 try { if (tray != null) { tray.Visible = false; tray.Dispose(); } } catch { }
                 if (anim != null) anim.Dispose();
                 if (strip != null) strip.Dispose();
