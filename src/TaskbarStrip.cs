@@ -496,14 +496,19 @@ namespace AgentStatusBar
 
         void RenderIfChanged(bool force)
         {
-            if (!hasLayout) return;
+            if (!hasLayout || lastText == null) return;
             string key = layout.Width + "x" + layout.Height + "|" + (int)lastPhase + "|" + lastText;
             if (!force && key == renderKey) return;
             renderKey = key;
             lock (renderGate)
             {
                 try { RenderNow(); }
-                catch (Exception ex) { Dbg("render ex: " + ex.Message); }
+                catch (Exception ex)
+                {
+                    string s = ex.ToString();
+                    if (s.Length > 600) s = s.Substring(0, 600);
+                    Dbg("render ex: " + s);
+                }
             }
         }
 
@@ -765,6 +770,7 @@ namespace AgentStatusBar
 
         static void SplitRuns(string text, Action<string, bool> emit)
         {
+            if (String.IsNullOrEmpty(text)) return;
             int i = 0;
             while (i < text.Length)
             {
