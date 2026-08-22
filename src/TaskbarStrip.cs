@@ -442,8 +442,8 @@ namespace AgentStatusBar
             {
                 if (tokenVals != null)
                     textW += (int)Math.Ceiling(
-                        RenderTokens(measurer, TokenTpl, f, fl, null, 0f, 0f, 0f, null) / 3f) + 7; // 固定预留宽
-                if (animating) textW += (int)(stripH * 0.42f) + 6;
+                        RenderTokens(measurer, TokenTpl, f, fl, null, 0f, 0f, 0f, null) / 3f) + 8; // 固定预留宽
+                if (animating) textW += (int)(stripH * 0.42f) + 8;
                 textW += (int)Math.Ceiling(MixedWidth(measurer, lastText, f, fl) / 3f);
             }
             else textW = 220;
@@ -595,7 +595,7 @@ namespace AgentStatusBar
                             if (tokenVals != null)
                             {
                                 using (SolidBrush pb = new SolidBrush(Color.FromArgb(185, 198, 205, 214)))
-                                    mx += RenderTokens(g, tokenVals, fC, fL, pb, mx, cap.Y, cap.Height, sf) + 7f * S;
+                                    mx += RenderTokens(g, tokenVals, fC, fL, pb, mx, cap.Y, cap.Height, sf) + 8f * S;
                             }
 
                             // ---- 旋转圆环加载指示（运行中）----
@@ -616,7 +616,7 @@ namespace AgentStatusBar
                                     arc.EndCap = LineCap.Round;
                                     g.DrawArc(arc, spBox, ang, 95f);
                                 }
-                                mx = spCx + spR + 6f * S;
+                                mx = spCx + spR + 8f * S;
                             }
 
                             // ---- 主文字：切换时交叉淡入淡出 + 横向滑动（260ms，smoothstep）----
@@ -801,25 +801,21 @@ namespace AgentStatusBar
         }
 
         /// <summary>
-        /// 渲染 token 分组；每组数值按 "999.9M" 宽度固定占位（数字变化只在自己的槽内变，
-        /// 组与后续内容位置恒定）；brush 为 null 时仅测宽。返回内容总宽。
+        /// 渲染 token 分组：图标统一方形槽（列对齐），数值按 "999.9M" 宽度固定占位，
+        /// 组间一律 8px；brush 为 null 时仅测宽。返回内容总宽。
         /// </summary>
         float RenderTokens(Graphics g, string[] vals, Font fC, Font fL, Brush brush,
             float x, float yTop, float h, StringFormat sf)
         {
             float valSlot = MixedWidth(g, "999.9M", fC, fL); // 每组数值固定槽宽
+            float iconSlot = fC.Size;                          // 图标统一方形槽宽
             float ix = x;
             for (int i = 0; i + 1 < vals.Length; i += 2)
             {
-                // 图标：至少占一个字宽的槽位，后接 3px 间距
-                float iw = g.MeasureString(vals[i], fC, Int32.MaxValue,
-                    StringFormat.GenericTypographic).Width;
-                float slot = Math.Max(iw, fC.Size);
                 if (brush != null)
-                    g.DrawString(vals[i], fC, brush, new RectangleF(ix, yTop, slot + 2f, h), sf);
-                ix += slot + 3f * S;
+                    g.DrawString(vals[i], fC, brush, new RectangleF(ix, yTop, iconSlot + 2f, h), sf);
+                ix += iconSlot + 3f * S;
 
-                // 数值：绘制实际值，但按固定槽宽推进
                 if (brush != null)
                     DrawMixed(g, vals[i + 1], fC, fL, brush, ix, yTop, h, sf);
                 ix += valSlot + 8f * S;

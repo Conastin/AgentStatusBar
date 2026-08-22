@@ -57,17 +57,7 @@ namespace AgentStatusBar
             };
             anim.Start();
 
-            // 订阅系统主题变更广播（WM_SETTINGCHANGE / ImmersiveColorSet），切换深浅模式即时重绘
-            SystemEvents.UserPreferenceChanged += OnPreferenceChanged;
-
             RefreshAll();
-        }
-
-        void OnPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
-        {
-            if (e.Category != UserPreferenceCategory.General) return;
-            try { StyleMenu(tray.ContextMenuStrip); }
-            catch { }
         }
 
         ContextMenuStrip BuildMenu()
@@ -119,111 +109,7 @@ namespace AgentStatusBar
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(miRefresh);
             menu.Items.Add(miExit);
-
-            // 每次打开时按系统主题应用样式（可实时跟随明暗切换）
-            menu.Opening += delegate { StyleMenu(menu); };
-            StyleMenu(menu);
             return menu;
-        }
-
-        // ---------- 菜单主题适配 ----------
-
-        static bool IsSystemDark()
-        {
-            try
-            {
-                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(
-                    @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
-                    return k != null && Convert.ToInt32(k.GetValue("AppsUseLightTheme", 1)) == 0;
-            }
-            catch { return false; }
-        }
-
-        static void StyleMenu(ContextMenuStrip menu)
-        {
-            if (IsSystemDark())
-            {
-                menu.Renderer = new DarkMenuRenderer();
-                menu.BackColor = Color.FromArgb(43, 43, 49);
-                menu.ForeColor = Color.FromArgb(238, 238, 242);
-            }
-            else
-            {
-                menu.Renderer = new ToolStripProfessionalRenderer();
-                menu.BackColor = SystemColors.Menu;
-                menu.ForeColor = SystemColors.MenuText;
-            }
-
-            // 统一内部间距（两种主题一致的度量）
-            menu.Font = Ui.Text;
-            menu.Padding = new Padding(6, 6, 8, 6);
-            menu.ImageScalingSize = new Size(20, 20);
-            foreach (ToolStripItem it in menu.Items)
-            {
-                ToolStripSeparator sep = it as ToolStripSeparator;
-                if (sep != null)
-                {
-                    sep.AutoSize = false;
-                    sep.Height = 2;
-                    sep.Margin = new Padding(10, 6, 10, 6);
-                }
-                else
-                {
-                    it.Padding = new Padding(4, 7, 16, 7);
-                    it.Margin = new Padding(0);
-                }
-            }
-        }
-
-        class DarkMenuRenderer : ToolStripProfessionalRenderer
-        {
-            public DarkMenuRenderer() : base(new DarkColorTable()) { }
-
-            // 自绘亮色勾选标记（默认勾为深色系，在深底上不可见）
-            protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
-            {
-                Graphics g = e.Graphics;
-                Rectangle r = e.ImageRectangle;
-                if (r.Width < 4 || r.Height < 4) return;
-                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                using (Pen pen = new Pen(Color.FromArgb(235, 240, 240, 246), 1.8f))
-                {
-                    pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
-                    pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-                    pen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
-                    PointF[] pts = new PointF[]
-                    {
-                        new PointF(r.X + r.Width * 0.18f, r.Y + r.Height * 0.52f),
-                        new PointF(r.X + r.Width * 0.42f, r.Y + r.Height * 0.76f),
-                        new PointF(r.X + r.Width * 0.82f, r.Y + r.Height * 0.26f)
-                    };
-                    g.DrawLines(pen, pts);
-                }
-            }
-        }
-
-        class DarkColorTable : ProfessionalColorTable
-        {
-            static readonly Color Bg = Color.FromArgb(43, 43, 49);
-            static readonly Color Hover = Color.FromArgb(62, 62, 70);
-            static readonly Color Border = Color.FromArgb(66, 66, 74);
-
-            public override Color ToolStripDropDownBackground { get { return Bg; } }
-            public override Color MenuBorder { get { return Border; } }
-            public override Color MenuItemBorder { get { return Border; } }
-            public override Color MenuItemSelected { get { return Hover; } }
-            public override Color MenuItemSelectedGradientBegin { get { return Hover; } }
-            public override Color MenuItemSelectedGradientEnd { get { return Hover; } }
-            public override Color MenuItemPressedGradientBegin { get { return Hover; } }
-            public override Color MenuItemPressedGradientEnd { get { return Hover; } }
-            public override Color ImageMarginGradientBegin { get { return Bg; } }
-            public override Color ImageMarginGradientMiddle { get { return Bg; } }
-            public override Color ImageMarginGradientEnd { get { return Bg; } }
-            public override Color SeparatorDark { get { return Border; } }
-            public override Color SeparatorLight { get { return Border; } }
-            public override Color CheckBackground { get { return Hover; } }
-            public override Color CheckSelectedBackground { get { return Hover; } }
-            public override Color CheckPressedBackground { get { return Hover; } }
         }
 
         void SetStripVisible(bool v)
@@ -418,7 +304,6 @@ namespace AgentStatusBar
         {
             if (disposing)
             {
-                SystemEvents.UserPreferenceChanged -= OnPreferenceChanged;
                 try { if (tray != null) { tray.Visible = false; tray.Dispose(); } } catch { }
                 if (anim != null) anim.Dispose();
                 if (strip != null) strip.Dispose();
