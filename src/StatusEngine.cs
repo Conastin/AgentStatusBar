@@ -17,7 +17,7 @@ namespace AgentStatusBar
         public string Id;
         public string Agent = "ZCode";   // 会话所属 Agent（为多 Agent 适配预留）
         public string Model = "";
-        public Phase Phase = Phase.Completed;
+        public Phase Phase = Phase.WaitingInput; // 新会话默认等待输入（可见），闲置 15 分钟自动隐去
         public DateTime LastActivity = DateTime.MinValue;   // 本地时间
         public DateTime PhaseSince = DateTime.MinValue;
         public DateTime ToolStart = DateTime.MinValue;
@@ -392,6 +392,7 @@ namespace AgentStatusBar
                     {
                         string ws = ctx != null ? GetStr(ctx, "workspacePath") : null;
                         if (ws != null && ws.Length > 0) s.Workspace = ws;
+                        meaningful = true; // 新会话创建立即推送 UI
                     }
                     break;
                 case "session.resumed":
@@ -399,7 +400,8 @@ namespace AgentStatusBar
                         string dir = ctx != null ? GetStr(ctx, "directory") : null;
                         if (dir != null && dir.Length > 0) s.Workspace = dir;
                     }
-                    SetPhase(s, Phase.Completed, ts);
+                    SetPhase(s, Phase.WaitingInput, ts);
+                    meaningful = true;
                     break;
                 case "background_task.tracking.started":
                     s.BackgroundTasks++;
