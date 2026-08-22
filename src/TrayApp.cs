@@ -146,7 +146,6 @@ namespace AgentStatusBar
                 menu.Renderer = new DarkMenuRenderer();
                 menu.BackColor = Color.FromArgb(43, 43, 49);
                 menu.ForeColor = Color.FromArgb(238, 238, 242);
-                menu.ShowImageMargin = false;
             }
             else
             {
@@ -159,6 +158,28 @@ namespace AgentStatusBar
         class DarkMenuRenderer : ToolStripProfessionalRenderer
         {
             public DarkMenuRenderer() : base(new DarkColorTable()) { }
+
+            // 自绘亮色勾选标记（默认勾为深色系，在深底上不可见）
+            protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+            {
+                Graphics g = e.Graphics;
+                Rectangle r = e.ImageRectangle;
+                if (r.Width < 4 || r.Height < 4) return;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using (Pen pen = new Pen(Color.FromArgb(235, 240, 240, 246), 1.8f))
+                {
+                    pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                    pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                    pen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+                    PointF[] pts = new PointF[]
+                    {
+                        new PointF(r.X + r.Width * 0.18f, r.Y + r.Height * 0.52f),
+                        new PointF(r.X + r.Width * 0.42f, r.Y + r.Height * 0.76f),
+                        new PointF(r.X + r.Width * 0.82f, r.Y + r.Height * 0.26f)
+                    };
+                    g.DrawLines(pen, pts);
+                }
+            }
         }
 
         class DarkColorTable : ProfessionalColorTable
