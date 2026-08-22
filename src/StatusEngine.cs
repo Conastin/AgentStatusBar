@@ -354,13 +354,17 @@ namespace AgentStatusBar
                     meaningful = true;
                     break;
                 case "model.request.completed":
-                    s.Requests++; requestsToday++;
                     {
+                        // 后台请求（标题生成/记忆提取/网页处理等）也发 completed，
+                        // 不驱动相位，否则空闲会话会误显示“运行中”
+                        string qs = ctx != null ? GetStr(ctx, "querySource") : null;
+                        if (qs != null && qs != "main_turn" && qs != "subagent") break;
+                        s.Requests++; requestsToday++;
                         string m = ctx != null ? GetStr(ctx, "model") : null;
                         if (m != null) s.Model = m;
+                        if (s.Phase != Phase.ToolRunning) SetPhase(s, Phase.Thinking, ts);
+                        meaningful = true;
                     }
-                    if (s.Phase != Phase.ToolRunning) SetPhase(s, Phase.Thinking, ts);
-                    meaningful = true;
                     break;
                 case "model.request.failed":
                     // API 请求失败由 ZCode 自动重试（多为网络超时/取消残留），不计为错误
