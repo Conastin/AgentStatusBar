@@ -27,6 +27,8 @@ namespace AgentStatusBar
         public string DbTitle = "";                          // 会话标题（SQLite）
         public int Turns, Requests, Errors, Tools, BackgroundTasks;
         public DateTime LastError = DateTime.MinValue;
+        // null = 主会话；"" = 子智能体会话但父未知（不展示）；其余 = 父会话 ID
+        public string ParentId;
 
         /// <summary>展示标题：SQLite 标题 > 项目目录名 > 短 ID。</summary>
         public string TitleDisplay
@@ -47,6 +49,19 @@ namespace AgentStatusBar
         public string ShortId
         {
             get { return (Id != null && Id.Length > 10) ? Id.Substring(Id.Length - 6) : (Id ?? "?"); }
+        }
+
+        /// <summary>浅副本：Compute 里把子会话统计并入父会话时，避免污染原始计数（Compute 会被反复调用）。</summary>
+        public SessionState ShallowCopy()
+        {
+            return new SessionState
+            {
+                Id = Id, Agent = Agent, Model = Model, Phase = Phase,
+                LastActivity = LastActivity, PhaseSince = PhaseSince, ToolStart = ToolStart,
+                CurrentTool = CurrentTool, LastTool = LastTool, Workspace = Workspace, DbTitle = DbTitle,
+                Turns = Turns, Requests = Requests, Errors = Errors, Tools = Tools,
+                BackgroundTasks = BackgroundTasks, LastError = LastError, ParentId = ParentId
+            };
         }
 
         public string ModelShort
@@ -323,7 +338,6 @@ namespace AgentStatusBar
             Dictionary<string, object> ctx = o.TryGetValue("context", out c) ? c as Dictionary<string, object> : null;
 
             SessionState s = GetOrAdd(sid);
-            s.LastActivity = ts;
             string status = GetStr(o, "status");
             bool meaningful = false;
 
@@ -415,7 +429,20 @@ namespace AgentStatusBar
                         if (mm != null) s.Model = mm;
                     }
                     break;
+                case "subagent.spawned":
+                case "subagent.completed":
+                    {
+                        // 事件的 sessionId 是父会话；context.agentId 对应子会话 sess_subagent_<agentId>
+                        string aid = ctx != null ? GetStr(ctx, "agentId") : null;
+                        if (aid != null && aid.Length > 0)
+                            GetOrAdd("sess_subagent_" + aid).ParentId = sid;
+                    }
+                    break;
             }
+            // 只有真实交互（轮次/主请求/工具调用/新建/恢复）才算会话活跃；
+            // workspace_state、mcp、bootstrap 等进程级事件也带 sessionId，
+            // 若用来刷新 LastActivity，已结束/空闲会话会永远显示“等待输入”
+            if (meaningful) s.LastActivity = ts;
             return meaningful;
         }
 
@@ -425,6 +452,8 @@ namespace AgentStatusBar
             if (!sessions.TryGetValue(id, out s))
             {
                 s = new SessionState { Id = id };
+                if (id.StartsWith("sess_subagent_", StringComparison.Ordinal))
+                    s.ParentId = ""; // 子智能体会话，父待 subagent.spawned 补充映射
                 sessions[id] = s;
             }
             return s;
@@ -597,9 +626,54 @@ namespace AgentStatusBar
                 st.CacheWrite = tokCacheWrite;
 
                 DateTime now = DateTime.Now;
+
+                // 主会话与子智能体会话分离：子会话不单独展示，统计并入主会话
+                Dictionary<string, List<SessionState>> childMap = new Dictionary<string, List<SessionState>>();
                 List<SessionState> recent = new List<SessionState>();
                 foreach (SessionState s in sessions.Values)
-                    if ((now - s.LastActivity).TotalHours <= RecentHours) recent.Add(s);
+                {
+                    if ((now - s.LastActivity).TotalHours > RecentHours) continue;
+                    if (s.ParentId != null)
+                    {
+                        if (s.ParentId.Length > 0 && sessions.ContainsKey(s.ParentId))
+                        {
+                            List<SessionState> kids;
+                            if (!childMap.TryGetValue(s.ParentId, out kids))
+                                childMap[s.ParentId] = kids = new List<SessionState>();
+                            kids.Add(s);
+                        }
+                        continue; // 子会话（含父未知）不作为独立会话展示
+                    }
+                    recent.Add(s);
+                }
+
+                List<SessionState> merged = new List<SessionState>();
+                foreach (SessionState s in recent)
+                {
+                    List<SessionState> kids;
+                    if (!childMap.TryGetValue(s.Id, out kids)) { merged.Add(s); continue; }
+                    SessionState d = s.ShallowCopy();
+                    foreach (SessionState k in kids)
+                    {
+                        d.Requests += k.Requests;
+                        d.Tools += k.Tools;
+                        // 子任务在跑则父会话保持活跃（否则 Agent 工具执行超 90s 会被判空闲隐藏）
+                        if (k.LastActivity > d.LastActivity) d.LastActivity = k.LastActivity;
+                        if (k.LastError > d.LastError) d.LastError = k.LastError;
+                        Phase kp = k.EffectivePhase(now);
+                        if ((kp == Phase.Thinking || kp == Phase.ToolRunning) &&
+                            d.Phase != Phase.ToolRunning && d.Phase != Phase.Thinking)
+                        {
+                            // 父会话自身的 Agent 工具事件缺失时，用子会话运行态顶上
+                            d.Phase = Phase.ToolRunning;
+                            d.PhaseSince = k.PhaseSince;
+                            if (d.CurrentTool == null || d.CurrentTool.Length == 0)
+                            { d.CurrentTool = "Agent"; d.ToolStart = k.ToolStart; }
+                        }
+                    }
+                    merged.Add(d);
+                }
+                recent = merged;
                 recent.Sort(delegate(SessionState a, SessionState b) { return b.LastActivity.CompareTo(a.LastActivity); });
 
                 // 已完成/空闲的会话不展示（后台仍跟踪，再次 turn.started 会重新出现）
