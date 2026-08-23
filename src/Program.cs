@@ -101,7 +101,7 @@ namespace AgentStatusBar
             {
                 Phase p = x.EffectivePhase(now);
                 string doing = (p == Phase.ToolRunning && x.CurrentTool.Length > 0)
-                    ? "正在执行 " + x.CurrentTool + " " + Ui.Dur(now - x.ToolStart)
+                    ? "正在执行 " + x.ToolDisplay + " " + Ui.Dur(now - x.ToolStart)
                     : "";
                 sb.AppendLine(String.Format("  [{0}] {1,-4} {2,-10} 标题={3} 模型={4} 轮次={5} 请求={6} 工具={7} 错误={8} 最近活跃={9} {10}",
                     x.ShortId, Ui.PhaseText(p), doing, x.TitleDisplay, x.ModelShort, x.Turns, x.Requests, x.Tools, x.Errors, Ui.Ago(x.LastActivity), x.Id));

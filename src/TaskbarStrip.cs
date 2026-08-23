@@ -244,7 +244,7 @@ namespace AgentStatusBar
                 text += phrase;
                 SessionState run = s.FirstRunning(now);
                 if (s.Overall == Phase.ToolRunning && run != null && run.CurrentTool.Length > 0)
-                    text += " · " + run.CurrentTool + " " + Ui.Dur(now - run.ToolStart);
+                    text += " · " + run.ToolDisplay + " " + Ui.Dur(now - run.ToolStart);
                 return text;
             }
             if (s.Overall == Phase.WaitingInput)

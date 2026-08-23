@@ -32,6 +32,12 @@ namespace AgentStatusBar
         // 轮次进行中（turn.started 后未 completed/failed）。挂起的提问/计划审批
         // 期间日志完全静默，靠它区分“等用户”与“真空闲”
         public bool TurnOpen;
+        // Agent 工具调用的展示名（事件到达时算好，UI 线程只读字符串避免竞争），
+        // 如 “SubAgent×2·Explore”；无活跃子任务映射时为空
+        public string SubAgentSummary = "";
+        // 活跃子智能体 agentId -> agentType。只在引擎线程（gate 锁内）访问；
+        // UI 一律读 SubAgentSummary 快照
+        public readonly Dictionary<string, string> SubAgents = new Dictionary<string, string>();
 
         /// <summary>展示标题：SQLite 标题 > 项目目录名 > 短 ID。</summary>
         public string TitleDisplay
@@ -64,7 +70,7 @@ namespace AgentStatusBar
                 CurrentTool = CurrentTool, LastTool = LastTool, Workspace = Workspace, DbTitle = DbTitle,
                 Turns = Turns, Requests = Requests, Errors = Errors, Tools = Tools,
                 BackgroundTasks = BackgroundTasks, LastError = LastError, ParentId = ParentId,
-                TurnOpen = TurnOpen
+                TurnOpen = TurnOpen, SubAgentSummary = SubAgentSummary
             };
         }
 
@@ -77,6 +83,16 @@ namespace AgentStatusBar
                 int j = Model.LastIndexOf(':');
                 int k = Math.Max(i, j);
                 return (k >= 0 && k < Model.Length - 1) ? Model.Substring(k + 1) : Model;
+            }
+        }
+
+        /// <summary>工具名展示：Agent 调用换成 SubAgent 汇总，其余原样。</summary>
+        public string ToolDisplay
+        {
+            get
+            {
+                if (CurrentTool != "Agent") return CurrentTool;
+                return SubAgentSummary.Length > 0 ? SubAgentSummary : "SubAgent";
             }
         }
 
@@ -163,7 +179,7 @@ namespace AgentStatusBar
                 string model = run.ModelShort;
                 Phase p = run.EffectivePhase(now);
                 if (p == Phase.ToolRunning && run.CurrentTool.Length > 0)
-                    return "ZCode 运行中 · " + model + " · " + run.CurrentTool + " " + Ui.Dur(now - run.ToolStart);
+                    return "ZCode 运行中 · " + model + " · " + run.ToolDisplay + " " + Ui.Dur(now - run.ToolStart);
                 return "ZCode 运行中 · " + model + " 思考中";
             }
             return "ZCode " + StateText + " · " + Sessions.Count + " 个会话";
@@ -475,7 +491,16 @@ namespace AgentStatusBar
                         // 事件的 sessionId 是父会话；context.agentId 对应子会话 sess_subagent_<agentId>
                         string aid = ctx != null ? GetStr(ctx, "agentId") : null;
                         if (aid != null && aid.Length > 0)
+                        {
                             GetOrAdd("sess_subagent_" + aid).ParentId = sid;
+                            if (ev == "subagent.spawned")
+                            {
+                                string at = ctx != null ? GetStr(ctx, "agentType") : null;
+                                s.SubAgents[aid] = (at != null && at.Length > 0) ? at : "sub";
+                            }
+                            else s.SubAgents.Remove(aid);
+                            UpdateSubAgentSummary(s);
+                        }
                     }
                     break;
             }
@@ -509,6 +534,19 @@ namespace AgentStatusBar
         {
             "AskUserQuestion", "ExitPlanMode", "EnterPlanMode"
         };
+
+        /// <summary>由活跃子任务表刷新展示汇总（SubAgent×N·类型[+类型]）。引擎锁内调用。</summary>
+        static void UpdateSubAgentSummary(SessionState s)
+        {
+            if (s.SubAgents.Count == 0) { s.SubAgentSummary = ""; return; }
+            List<string> types = new List<string>();
+            foreach (string v in s.SubAgents.Values)
+            {
+                string t = v == "general-purpose" ? "General" : v;
+                if (t.Length > 0 && !types.Contains(t)) types.Add(t);
+            }
+            s.SubAgentSummary = "SubAgent×" + s.SubAgents.Count + "·" + String.Join("+", types.ToArray());
+        }
 
         static readonly string[] TsFormats = { "yyyy-MM-ddTHH:mm:ss.fffZ", "yyyy-MM-ddTHH:mm:ssZ" };
 

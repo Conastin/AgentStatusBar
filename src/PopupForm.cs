@@ -31,7 +31,7 @@ namespace AgentStatusBar
         string lastIds = "";
         string lastFooter = "";
 
-        const int PanelW = 332; // = 348 - 8*2
+        const int PanelW = 368; // = 384 - 8*2
         const int RowH = 48;
 
         public PopupForm(Func<AgentStatus> compute)
@@ -42,7 +42,7 @@ namespace AgentStatusBar
             ShowInTaskbar = false;
             TopMost = true;
             StartPosition = FormStartPosition.Manual;
-            Size = new Size(S(348), S(160));
+            Size = new Size(S(384), S(160));
             BackColor = Ui.Bg;
             ForeColor = Ui.TextMain;
             DoubleBuffered = true;
@@ -79,7 +79,7 @@ namespace AgentStatusBar
 
             footer = new Label();
             footer.AutoSize = false;
-            footer.Size = new Size(S(PanelW - 16), S(20));
+            footer.Size = new Size(S(PanelW - 16), S(34));
             footer.Font = Ui.Small;
             footer.ForeColor = Ui.TextDim;
             footer.BackColor = Ui.Bg;
@@ -158,7 +158,7 @@ namespace AgentStatusBar
                 : Cursor.Position;
             Screen sc = Screen.FromPoint(ref_);
             Rectangle wa = sc.WorkingArea;
-            int w = S(348);
+            int w = S(384);
             int left;
             if (invoker.Width > 0)
                 left = invoker.X - S(10);
@@ -185,7 +185,8 @@ namespace AgentStatusBar
             if (s == null) return;
             DateTime now = DateTime.Now;
 
-            int max = Math.Min(s.Sessions.Count, 6);
+            // 引擎已限 8 个，全量展示（不再截断到 6 行）
+            int max = s.Sessions.Count;
 
             // 会话集合（含顺序）变化才重建行，否则原地更新文本
             StringBuilder ids = new StringBuilder();
@@ -205,14 +206,14 @@ namespace AgentStatusBar
             if (emptyLabel.Visible != empty) emptyLabel.Visible = empty;
 
             int bodyH = empty ? S(40) : max * (S(RowH) + S(4));
-            int totalH = S(38) + bodyH + S(30);
+            int totalH = S(38) + bodyH + S(48);
 
             SuspendLayout();
             try
             {
                 listPanel.Size = new Size(S(PanelW), bodyH);
-                footer.Location = new Point(S(16), totalH - S(26));
-                Size = new Size(S(348), totalH);
+                footer.Location = new Point(S(16), totalH - S(42));
+                Size = new Size(S(384), totalH);
                 Location = new Point(anchorBR.X - Width, anchorBR.Y - Height);
             }
             finally { ResumeLayout(false); }
@@ -221,7 +222,7 @@ namespace AgentStatusBar
             string ft = String.Format("今日 {0} 次请求 · {1} 次工具调用 · {2} 个错误",
                 s.RequestsToday, s.ToolCallsToday, s.ErrorsToday);
             if (s.TokensIn > 0 || s.TokensOut > 0 || cache > 0)
-                ft += String.Format(" · 入 {0} · 出 {1} · 缓存 {2}",
+                ft += String.Format("\r\nToken 入 {0} · 出 {1} · 缓存 {2}",
                     Ui.KT(s.TokensIn), Ui.KT(s.TokensOut), Ui.KT(cache));
             if (ft != lastFooter)
             {
@@ -294,7 +295,8 @@ namespace AgentStatusBar
             ui.L2.BackColor = Color.Transparent;
             ui.L2.AutoSize = false;
             ui.L2.AutoEllipsis = true;
-            ui.L2.Size = new Size(rowW - S(32) - S(64), S(18));
+            // 时间挪到标题行右上角后，第二行可占满整行宽
+            ui.L2.Size = new Size(rowW - S(32) - S(8), S(18));
             ui.L2.Location = new Point(S(32), S(26));
             ui.P.Controls.Add(ui.L2);
 
@@ -306,7 +308,7 @@ namespace AgentStatusBar
             ui.Time.AutoEllipsis = true;
             ui.Time.Size = new Size(S(58), S(16));
             ui.Time.TextAlign = ContentAlignment.MiddleRight;
-            ui.Time.Location = new Point(rowW - S(12) - S(58), rowH / 2 - S(8));
+            ui.Time.Location = new Point(rowW - S(12) - S(58), S(9));
             ui.P.Controls.Add(ui.Time);
 
             UpdateRow(ui, sess, now);
@@ -323,20 +325,21 @@ namespace AgentStatusBar
             if (ui.L1.Text != l1) ui.L1.Text = l1;
 
             string model = sess.ModelShort.Length > 0 ? sess.ModelShort : "未知模型";
-            string agent = (sess.Agent != null && sess.Agent.Length > 0) ? sess.Agent : "ZCode";
+            // Agent 名只在非 ZCode 时才显示（多 Agent 适配预留），给长文案让位
+            string prefix = (sess.Agent != null && sess.Agent.Length > 0 && sess.Agent != "ZCode")
+                ? sess.Agent + " · " : "";
             string l2;
             if (p == Phase.ToolRunning && sess.CurrentTool.Length > 0)
-                l2 = agent + " · " + Ui.PhaseText(p) + " · " + model + " · " + sess.CurrentTool + " " + Ui.Dur(now - sess.ToolStart);
+                l2 = prefix + Ui.PhaseText(p) + " · " + sess.ToolDisplay + " " + Ui.Dur(now - sess.ToolStart) + " · " + model;
             else if (p == Phase.Thinking)
-                l2 = agent + " · " + Ui.PhaseText(p) + " · " + model;
+                l2 = prefix + Ui.PhaseText(p) + " · " + model;
             else if (p == Phase.Error)
-                l2 = agent + " · " + Ui.PhaseText(p) + " · " + model + " · 上次出错 " + Ui.Ago(sess.LastError);
+                l2 = prefix + Ui.PhaseText(p) + " · " + model + " · 上次出错 " + Ui.Ago(sess.LastError);
             else
             {
-                l2 = agent + " · " + Ui.PhaseText(p) + " · " + model + " · " +
-                    sess.Turns + " 轮 · " + sess.Requests + " 次请求 · " + sess.Tools + " 次工具";
-                if (sess.Errors > 0) l2 += " · " + sess.Errors + " 错误";
-                if (sess.BackgroundTasks > 0) l2 += " · 后台任务 " + sess.BackgroundTasks;
+                l2 = prefix + model + " · " + sess.Requests + " 请求 · " + sess.Tools + " 工具";
+                if (sess.Errors > 0) l2 += " · " + sess.Errors + " 错";
+                if (sess.BackgroundTasks > 0) l2 += " · 后台 " + sess.BackgroundTasks;
             }
             if (ui.L2.Text != l2) ui.L2.Text = l2;
 
