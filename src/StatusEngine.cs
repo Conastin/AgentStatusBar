@@ -29,6 +29,9 @@ namespace AgentStatusBar
         public DateTime LastError = DateTime.MinValue;
         // null = 主会话；"" = 子智能体会话但父未知（不展示）；其余 = 父会话 ID
         public string ParentId;
+        // 轮次进行中（turn.started 后未 completed/failed）。挂起的提问/计划审批
+        // 期间日志完全静默，靠它区分“等用户”与“真空闲”
+        public bool TurnOpen;
 
         /// <summary>展示标题：SQLite 标题 > 项目目录名 > 短 ID。</summary>
         public string TitleDisplay
@@ -60,7 +63,8 @@ namespace AgentStatusBar
                 LastActivity = LastActivity, PhaseSince = PhaseSince, ToolStart = ToolStart,
                 CurrentTool = CurrentTool, LastTool = LastTool, Workspace = Workspace, DbTitle = DbTitle,
                 Turns = Turns, Requests = Requests, Errors = Errors, Tools = Tools,
-                BackgroundTasks = BackgroundTasks, LastError = LastError, ParentId = ParentId
+                BackgroundTasks = BackgroundTasks, LastError = LastError, ParentId = ParentId,
+                TurnOpen = TurnOpen
             };
         }
 
@@ -76,21 +80,37 @@ namespace AgentStatusBar
             }
         }
 
-        /// <summary>结合最近活跃时间修正展示用的相位（事件流停滞时自动降级为空闲）。</summary>
+        /// <summary>结合最近活跃时间修正展示用的相位（事件流停滞时自动降级；轮次未结束时多半在等用户）。</summary>
         public Phase EffectivePhase(DateTime now)
         {
+            if (Phase == Phase.Idle) return Phase.Idle;
             if (Phase == Phase.Thinking || Phase == Phase.ToolRunning)
             {
-                if ((now - LastActivity).TotalSeconds > 90) return Phase.Idle;
-                return Phase;
+                double idle = (now - LastActivity).TotalSeconds;
+                if (Phase == Phase.Thinking)
+                {
+                    if (idle > 90)
+                    {
+                        // 轮次未结束却长时间无事件：多半是提问/计划审批/权限确认在等用户
+                        return TurnOpen ? Phase.WaitingInput : Phase.Idle;
+                    }
+                    return Phase.Thinking;
+                }
+                // 轮次打开时容忍长工具（构建/测试），最多显示 10 分钟
+                if (idle > (TurnOpen ? 600 : 90)) return Phase.Idle;
+                return Phase.ToolRunning;
             }
             if (Phase == Phase.Error)
             {
                 if ((now - LastError).TotalMinutes <= 5 && (now - LastActivity).TotalMinutes <= 30) return Phase.Error;
                 return Phase.Idle;
             }
-            if ((now - LastActivity).TotalMinutes > 15) return Phase.Idle;
-            return Phase == Phase.WaitingInput ? Phase.WaitingInput : Phase.Completed;
+            if (Phase == Phase.WaitingInput)
+            {
+                if (TurnOpen) return Phase.WaitingInput; // 挂起的提问/审批不淡出
+                return (now - LastActivity).TotalMinutes > 15 ? Phase.Idle : Phase.WaitingInput;
+            }
+            return (now - LastActivity).TotalMinutes > 15 ? Phase.Idle : Phase.Completed;
         }
     }
 
@@ -345,16 +365,19 @@ namespace AgentStatusBar
             {
                 case "turn.started":
                     s.Turns++;
+                    s.TurnOpen = true;
                     SetPhase(s, Phase.Thinking, ts);
                     meaningful = true;
                     break;
                 case "turn.completed":
                     // 只有模型以提问收尾（最后一轮回复以 ？/? 结束）才算“等待输入”，
                     // 否则是正常完成
+                    s.TurnOpen = false;
                     SetPhase(s, LastResponseEndsWithQuestion(s.Id) ? Phase.WaitingInput : Phase.Completed, ts);
                     meaningful = true;
                     break;
                 case "turn.failed":
+                    s.TurnOpen = false;
                     if (status == "cancelled")
                     {
                         // 用户手动中断不算错误：轮次作废，回到已完成（会话从列表隐去）
@@ -387,10 +410,21 @@ namespace AgentStatusBar
                     s.Tools++; toolsToday++;
                     {
                         string t = ctx != null ? GetStr(ctx, "toolName") : null;
-                        s.CurrentTool = t ?? "?";
+                        if (t != null && UserInputTools.Contains(t))
+                        {
+                            // 提问/计划审批挂在用户侧：显示“等待输入”（轮次未结束不淡出）。
+                            // 这些工具的 started/completed 常在用户操作后才一并写入日志，
+                            // 等待期间的静默由 EffectivePhase 的轮次规则兜底
+                            s.CurrentTool = "";
+                            SetPhase(s, Phase.WaitingInput, ts);
+                        }
+                        else
+                        {
+                            s.CurrentTool = t ?? "?";
+                            s.ToolStart = ts;
+                            SetPhase(s, Phase.ToolRunning, ts);
+                        }
                     }
-                    s.ToolStart = ts;
-                    SetPhase(s, Phase.ToolRunning, ts);
                     meaningful = true;
                     break;
                 case "tool.call.completed":
@@ -429,6 +463,12 @@ namespace AgentStatusBar
                         if (mm != null) s.Model = mm;
                     }
                     break;
+                case "zcode_protocol.session.resident_deactivated":
+                    // ZCode 自己的空闲信号（约 10 分钟无活动把常驻运行时休眠）：
+                    // 会话立即隐去，不等 15 分钟淡出；用户回来操作会重新出现。
+                    // 不是交互事件，不刷新 LastActivity
+                    SetPhase(s, Phase.Idle, ts);
+                    break;
                 case "subagent.spawned":
                 case "subagent.completed":
                     {
@@ -463,6 +503,12 @@ namespace AgentStatusBar
         {
             if (s.Phase != p) { s.Phase = p; s.PhaseSince = ts; }
         }
+
+        /// <summary>阻塞在用户侧的工具：调用期间会话应显示“等待输入”而非执行工具。</summary>
+        static readonly HashSet<string> UserInputTools = new HashSet<string>
+        {
+            "AskUserQuestion", "ExitPlanMode", "EnterPlanMode"
+        };
 
         static readonly string[] TsFormats = { "yyyy-MM-ddTHH:mm:ss.fffZ", "yyyy-MM-ddTHH:mm:ssZ" };
 

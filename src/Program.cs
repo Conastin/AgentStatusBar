@@ -14,7 +14,12 @@ namespace AgentStatusBar
             for (int i = 0; args != null && i < args.Length; i++)
             {
                 string a = args[i];
-                if (a == "--status" || a == "-s") return RunStatusDump();
+                if (a == "--status" || a == "-s")
+                {
+                    // 可选第二个参数：日志目录（回归测试用合成日志）
+                    string dir = (i + 1 < args.Length && Directory.Exists(args[i + 1])) ? args[i + 1] : null;
+                    return RunStatusDump(dir);
+                }
                 if (a == "--help" || a == "-h" || a == "/?")
                 {
                     Native.TryAttachParentConsole();
@@ -72,10 +77,10 @@ namespace AgentStatusBar
             catch { }
         }
 
-        static int RunStatusDump()
+        static int RunStatusDump(string logDir)
         {
             Native.TryAttachParentConsole();
-            StatusEngine engine = new StatusEngine();
+            StatusEngine engine = new StatusEngine(logDir);
             engine.FetchTitlesNow();
             AgentStatus s = engine.Compute();
 
