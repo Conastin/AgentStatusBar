@@ -17,7 +17,7 @@ namespace AgentStatusBar
         public string Id;
         public string Agent = "ZCode";   // 会话所属 Agent（为多 Agent 适配预留）
         public string Model = "";
-        public Phase Phase = Phase.WaitingInput; // 新会话默认等待输入（可见），闲置 15 分钟自动隐去
+        public Phase Phase = Phase.WaitingInput; // 新会话默认等待输入；未挂起提问时不展示（见 EffectivePhase）
         public DateTime LastActivity = DateTime.MinValue;   // 本地时间
         public DateTime PhaseSince = DateTime.MinValue;
         public DateTime ToolStart = DateTime.MinValue;
@@ -112,8 +112,10 @@ namespace AgentStatusBar
                     }
                     return Phase.Thinking;
                 }
-                // 轮次打开时容忍长工具（构建/测试），最多显示 10 分钟
-                if (idle > (TurnOpen ? 600 : 90)) return Phase.Idle;
+                // 长工具（构建/测试/轮询后台任务）合法，统一容忍 10 分钟。
+                // 不再看 TurnOpen：种子窗口可能丢掉 turn.started（多会话日志
+                // 流量大），轮次标记假阴性会把正在跑的会话误判成空闲隐去
+                if (idle > 600) return Phase.Idle;
                 return Phase.ToolRunning;
             }
             if (Phase == Phase.Error)
@@ -123,8 +125,12 @@ namespace AgentStatusBar
             }
             if (Phase == Phase.WaitingInput)
             {
-                if (TurnOpen) return Phase.WaitingInput; // 挂起的提问/审批不淡出
-                return (now - LastActivity).TotalMinutes > 15 ? Phase.Idle : Phase.WaitingInput;
+                // 只显示真正挂着提问/审批（轮次未结束）的会话；单纯开着的
+                // （新建/恢复后没动静、问完已收尾）一律不展示。关闭终端的
+                // 会话因此即时消失——它从头到尾就不该出现在列表里。
+                // 日志里没有“会话关闭”事件，静默无法区分“在等你”与“已关掉”，
+                // 但挂起提问有 TurnOpen 标记，无需超时猜测。
+                return TurnOpen ? Phase.WaitingInput : Phase.Idle;
             }
             return (now - LastActivity).TotalMinutes > 15 ? Phase.Idle : Phase.Completed;
         }
@@ -193,7 +199,7 @@ namespace AgentStatusBar
     public class StatusEngine : IDisposable
     {
         public readonly string LogDir;
-        const int SeedBytes = 256 * 1024;          // 启动/换日时回看的字节量
+        const int SeedBytes = 2 * 1024 * 1024;   // 启动/换日时回看的字节量（多会话高负载下 256KB 只够几分钟，turn 边界会掉出窗口）
         const int MaxReadChunk = 8 * 1024 * 1024;
         const int RecentHours = 12;                // 面板里展示最近 N 小时的会话
 
@@ -487,13 +493,15 @@ namespace AgentStatusBar
                     break;
                 case "subagent.spawned":
                 case "subagent.completed":
+                case "subagent.background.started":   // 后台子智能体（TaskOutput 轮询模式）
+                case "subagent.background.completed":
                     {
                         // 事件的 sessionId 是父会话；context.agentId 对应子会话 sess_subagent_<agentId>
                         string aid = ctx != null ? GetStr(ctx, "agentId") : null;
                         if (aid != null && aid.Length > 0)
                         {
                             GetOrAdd("sess_subagent_" + aid).ParentId = sid;
-                            if (ev == "subagent.spawned")
+                            if (ev == "subagent.spawned" || ev == "subagent.background.started")
                             {
                                 string at = ctx != null ? GetStr(ctx, "agentType") : null;
                                 s.SubAgents[aid] = (at != null && at.Length > 0) ? at : "sub";
@@ -741,14 +749,19 @@ namespace AgentStatusBar
                     {
                         d.Requests += k.Requests;
                         d.Tools += k.Tools;
-                        // 子任务在跑则父会话保持活跃（否则 Agent 工具执行超 90s 会被判空闲隐藏）
-                        if (k.LastActivity > d.LastActivity) d.LastActivity = k.LastActivity;
+                        // 子任务最近 10 分钟内有活动、且仍在父会话的活跃子任务表
+                        // （subagent.completed 已移除的不再顶）才算运行中：既给父
+                        // 会话续活跃，也在父会话落回思考/等待时顶回“工具执行”。
+                        // Agent 工具的 completed 常在子任务还在跑时就写入（并行
+                        // Agent 调用共享单槽 CurrentTool，先完成的会清空它）
+                        string kidAid = k.Id != null && k.Id.StartsWith("sess_subagent_")
+                            ? k.Id.Substring("sess_subagent_".Length) : k.Id;
+                        bool kidRunning = (now - k.LastActivity).TotalSeconds < 600
+                            && s.SubAgents.ContainsKey(kidAid);
+                        if (kidRunning && k.LastActivity > d.LastActivity) d.LastActivity = k.LastActivity;
                         if (k.LastError > d.LastError) d.LastError = k.LastError;
-                        Phase kp = k.EffectivePhase(now);
-                        if ((kp == Phase.Thinking || kp == Phase.ToolRunning) &&
-                            d.Phase != Phase.ToolRunning && d.Phase != Phase.Thinking)
+                        if (kidRunning && d.Phase != Phase.ToolRunning)
                         {
-                            // 父会话自身的 Agent 工具事件缺失时，用子会话运行态顶上
                             d.Phase = Phase.ToolRunning;
                             d.PhaseSince = k.PhaseSince;
                             if (d.CurrentTool == null || d.CurrentTool.Length == 0)
