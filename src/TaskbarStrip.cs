@@ -16,7 +16,8 @@ namespace AgentStatusBar
     /// Win11 不再支持 DeskBand，这里用分层窗口覆盖在任务栏上方：
     /// 逐像素 alpha 透明（液态玻璃胶囊），经 UpdateLayeredWindow 提交。
     /// 稳定性设计：WinEvent 钩子即时恢复 z 序（被任务栏盖住时立刻插回其上方）、
-    /// 全屏判定看任务栏是否被顶出屏幕（开始菜单等不算）、锚点位置变化防抖 + 消失宽限。
+    /// 全屏避让（任务栏被顶出屏幕，或前台窗口整屏覆盖：F11/截图/远程桌面）、
+    /// 锚点位置变化防抖 + 消失宽限。
     /// </summary>
     class TaskbarStripForm : Form
     {
@@ -76,7 +77,7 @@ namespace AgentStatusBar
         static Graphics measurer;
         static Dictionary<string, Font> fontMap;
 
-        const uint EVENT_MIN = 0x0003;      // EVENT_SYSTEM_FOREGROUND
+        const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
         const uint EVENT_MAX = 0x8005;      // EVENT_OBJECT_FOCUS（覆盖 SHOW/HIDE/REORDER）
         const uint WINEVENT_OUTOFCONTEXT = 0;
 
@@ -139,7 +140,7 @@ namespace AgentStatusBar
             try
             {
                 winEvt = OnWinEvent;
-                winEvtHook = Native.SetWinEventHook(EVENT_MIN, EVENT_MAX, IntPtr.Zero,
+                winEvtHook = Native.SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_MAX, IntPtr.Zero,
                     winEvt, 0, 0, WINEVENT_OUTOFCONTEXT);
             }
             catch { }
@@ -287,6 +288,11 @@ namespace AgentStatusBar
                 HideStrip("taskbar pushed off-screen (fullscreen)");
                 return;
             }
+            if (IsForegroundFullscreen(tb)) // 前台整屏覆盖：F11/截图遮罩/远程桌面，任务栏 rect 不变但被盖住
+            {
+                HideStrip("foreground fullscreen");
+                return;
+            }
             if (!contentActive) // 空闲/无数据：不显示
             {
                 HideStrip("idle");
@@ -336,15 +342,15 @@ namespace AgentStatusBar
             string key = target.X + "," + target.Y + "," + target.Width + "," + target.Height;
             if (key != layoutKey)
             {
-                bool wasHidden = !Visible;
                 layoutKey = key;
                 layout = target;
                 hasLayout = true;
                 // 先同步 WinForms Bounds，否则 Visible=true 时会用旧 Bounds 覆盖 ULW 的位置
                 SetBounds(target.X, target.Y, target.Width, target.Height);
                 RenderIfChanged(true);
-                if (wasHidden) { Visible = true; Dbg("SHOW: layout " + target); }
             }
+            // 可见性与布局解耦：全屏/无间隙隐藏后即使布局未变也能恢复显示
+            if (!Visible) { Visible = true; Dbg("SHOW: layout " + target); }
 
             FixZOrder();
 
@@ -460,6 +466,8 @@ namespace AgentStatusBar
             int now = Environment.TickCount;
             if (now - lastZFix < 60) return; // 节流
             lastZFix = now;
+            // 前台切换即时重判全屏：截图遮罩/全屏应用激活的瞬间就隐藏，不等 500ms tick
+            if (eventType == EVENT_SYSTEM_FOREGROUND) { DockTick(); return; }
             FixZOrder();
         }
 
@@ -477,8 +485,7 @@ namespace AgentStatusBar
         }
 
         /// <summary>任务栏被顶出屏幕（真全屏自动隐藏）才隐藏；开始菜单/搜索打开不算。</summary>
-        static bool IsTaskbarHidden(IntPtr tb, Native.RECT tr)
-        {
+        static bool IsTaskbarHidden(IntPtr tb, Native.RECT tr)        {
             try
             {
                 IntPtr mon = Native.MonitorFromWindow(tb, 1 /* MONITOR_DEFAULTTONEAREST */);
@@ -490,6 +497,37 @@ namespace AgentStatusBar
                 return (visBottom - visTop) < (tr.Bottom - tr.Top) * 4 / 10; // 可见不足 40%
             }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// 前台窗口整屏覆盖任务栏所在显示器：F11 浏览器、截图遮罩、远程桌面、视频/游戏
+        /// 全屏等任务栏 rect 不变只是被盖住的场景（IsTaskbarHidden 探测不到）。
+        /// 桌面（Progman/WorkerW）与任务栏自身整屏但非全屏应用，排除。
+        /// </summary>
+        static bool IsForegroundFullscreen(IntPtr tb)
+        {
+            IntPtr fg = Native.GetForegroundWindow();
+            if (fg == IntPtr.Zero || fg == tb) return false;
+            try
+            {
+                StringBuilder sb = new StringBuilder(64);
+                if (Native.GetClassName(fg, sb, 64) > 0)
+                {
+                    string cls = sb.ToString();
+                    if (cls == "Progman" || cls == "WorkerW" || cls == "Shell_TrayWnd")
+                        return false;
+                }
+            }
+            catch { }
+            Native.RECT r;
+            if (!Native.GetWindowRect(fg, out r)) return false;
+            IntPtr mon = Native.MonitorFromWindow(tb, 1 /* MONITOR_DEFAULTTONEAREST */);
+            Native.MONITORINFO mi = new Native.MONITORINFO();
+            mi.cbSize = Marshal.SizeOf(typeof(Native.MONITORINFO));
+            if (!Native.GetMonitorInfo(mon, ref mi)) return false;
+            Native.RECT m = mi.rcMonitor;
+            return r.Left <= m.Left + 2 && r.Top <= m.Top + 2
+                && r.Right >= m.Right - 2 && r.Bottom >= m.Bottom - 2;
         }
 
         // ---------- 渲染 ----------
