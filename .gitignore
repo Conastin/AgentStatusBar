@@ -6,6 +6,8 @@ status-dump.txt
 
 # 开发调试的临时截图
 *.png
+# README 展示图（由 docs/render-assets.cmd 生成，需入库）
+!docs/img/*.png
 
 # 生成 Phrases.cs 的源数据（一次性下载物）
 verbs.json
